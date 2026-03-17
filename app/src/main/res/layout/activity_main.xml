@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_color"
+    tools:context=".MainActivity">
+
+    <!-- Header -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/app_name"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_color"
+        android:gravity="center"
+        android:padding="16dp"
+        android:background="@color/primary_color" />
+
+    <!-- Mode Selector -->
+    <RadioGroup
+        android:id="@+id/modeSelector"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="8dp">
+        <RadioButton
+            android:id="@+id/radioRear"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Rear Camera"
+            android:checked="true"
+            android:textColor="@color/text_color"/>
+
+        <RadioButton
+            android:id="@+id/radioEsp32"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ESP32 CAM"
+            android:textColor="@color/text_color" />
+    </RadioGroup>
+
+    <!-- ESP32 Settings -->
+    <LinearLayout
+        android:id="@+id/esp32Settings"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+        <EditText
+            android:id="@+id/esp32Ip"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="ESP32 IP (e.g. 192.168.1.50)"
+            android:inputType="textUri"
+            android:textColor="@color/text_color"
+            android:textColorHint="@color/text_secondary"/>
+    </LinearLayout>
+
+    <!-- Camera Preview / Image Display -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" >
+
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="427dp"
+                android:alpha="0.5"
+                android:contentDescription="@string/scan_overlay"
+                android:scaleType="centerInside"
+                android:src="@drawable/scan_overlay" />
+        </androidx.camera.view.PreviewView>
+
+        <ImageView
+            android:id="@+id/esp32Preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:visibility="gone"/>
+
+        <!-- Scan Overlay -->
+    </FrameLayout>
+
+    <!-- Result Display -->
+
+    <!-- Capture Button -->
+    <TextView
+        android:id="@+id/resultTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/result_bg"
+        android:gravity="center"
+        android:minHeight="80dp"
+        android:padding="16dp"
+        android:text="@string/ready_to_scan"
+        android:textColor="@color/text_color"
+        android:textSize="18sp" />
+
+    <Button
+        android:id="@+id/captureButton"
+        android:layout_width="match_parent"
+        android:layout_height="90dp"
+        android:layout_margin="8dp"
+        android:background="@color/primary_color"
+        android:padding="16dp"
+        android:text="@string/capture"
+        android:textColor="@android:color/white"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+</LinearLayout>

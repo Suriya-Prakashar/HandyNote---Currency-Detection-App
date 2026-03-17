@@ -1,0 +1,48 @@
+# Android / Gradle
+**/.gradle/
+**/build/
+*.apk
+*.aab
+*.dex
+captures/
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+
+# Local config (do not commit)
+local.properties
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python tooling (kept out of repo)
+__pycache__/
+*.pyc
+.venv/
+
+# Do not commit large intermediate export artifacts
+app/src/main/assets/best_repacked_saved_model/
+app/src/main/assets/best_repacked.pt
+app/src/main/assets/best_repacked-fp16.tflite
+
+# Training checkpoints (not needed for Android runtime)
+*.pt
+
+# Keep repo smaller (optional): ignore the old INT8 model file
+app/src/main/assets/best-int8*.tflite
+
+# Optional: derived label exports (labels.txt is the one the app uses)
+app/src/main/assets/labels_from_pt.*
+
+# Avoid committing accidental duplicate source roots
+app/src/java/
+app/src/res/
+app/src/main/main/
+
+# This folder is the unpacked contents of a torch checkpoint (not needed in repo)
+app/src/main/assets/best/
+
+# Conversion helper repo clone (optional; keep repo clean)
+tools/yolov5/
