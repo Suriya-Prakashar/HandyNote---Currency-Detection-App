@@ -110,11 +110,15 @@ object CameraUtils {
         return input
     }
 
-    fun getTopPredictions(predictions: FloatArray, labels: List<String>, topK: Int = 3): List<Pair<String, Float>> {
+    fun getTopPredictions(predictions: FloatArray, labels: List<String>, topK: Int = 1): List<Pair<String, Float>> {
         val results = mutableListOf<Pair<String, Float>>()
 
         predictions.forEachIndexed { index, confidence ->
-            val label = if (index < labels.size) labels[index] else "Unknown Class $index"
+            val label = when {
+                index < labels.size -> labels[index]
+                index == 6 -> "unrecognized"
+                else -> "Unknown Class $index"
+            }
             results.add(Pair(label, confidence))
         }
 
@@ -188,7 +192,11 @@ object CameraUtils {
             val x2 = x + w / 2f
             val y2 = y + h / 2f
 
-            val label = labels.getOrNull(bestClass) ?: "Unknown Class $bestClass"
+            val label = when {
+                bestClass < labels.size -> labels[bestClass]
+                bestClass == 6 -> "unrecognized"
+                else -> "Unknown Class $bestClass"
+            }
             candidates.add(
                 Detection(
                     label = label,

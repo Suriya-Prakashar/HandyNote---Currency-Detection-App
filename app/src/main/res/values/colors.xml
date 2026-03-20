@@ -3,10 +3,17 @@
     <color name="primary_color">#2196F3</color>
     <color name="primary_dark">#1976D2</color>
     <color name="accent_color">#00BCD4</color>
-    <color name="bg_color">#F5F5F5</color>
+    <color name="bg_color">#F4F7FB</color>
     <color name="text_color">#212121</color>
     <color name="text_secondary">#757575</color>
     <color name="result_bg">#FFFDE7</color>
     <color name="success_color">#4CAF50</color>
     <color name="error_color">#F44336</color>
+
+    <color name="surface_card">#FFFFFF</color>
+    <color name="surface_muted">#EEF3FA</color>
+    <color name="camera_overlay">#B0000000</color>
+    <color name="divider_soft">#E3EAF4</color>
+    <color name="icon_muted">#6B7280</color>
+    <color name="shadow_soft">#1A000000</color>
 </resources>

@@ -39,6 +39,9 @@ android {
     sourceSets {
         main {
             java.srcDirs += ['src/main/java', 'src/main/kotlin']
+            // Bundle your latest trained YOLOv5 TFLite model into the APK as an asset.
+            // The binary is copied from `IndianCurrency_YOLO/best-fp16.tflite` at build time.
+            assets.srcDirs += ["$buildDir/generated/assets/yolo"]
         }
     }
 
@@ -46,6 +49,19 @@ android {
     androidResources {
         noCompress 'tflite'
     }
+}
+
+// Copy the trained model into Gradle-generated assets so `assets.openFd("best-fp16.tflite")` works.
+def yoloModelFile = file("${projectDir}/src/main/assets/IndianCurrency_YOLO/best-fp16.tflite")
+def generatedYoloAssetsDir = file("$buildDir/generated/assets/yolo")
+tasks.register('copyYoloModelToAssets', Copy) {
+    from(yoloModelFile)
+    into(generatedYoloAssetsDir)
+}
+
+// Ensure the generated asset exists before Android merges assets.
+tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeReleaseAssets' }.all {
+    dependsOn tasks.named('copyYoloModelToAssets')
 }
 
 dependencies {
