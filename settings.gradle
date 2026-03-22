@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "HandyNote---Currency-Detection-App"
+rootProject.name = "CurrencyDetection-handynote-v1"
 include ':app'

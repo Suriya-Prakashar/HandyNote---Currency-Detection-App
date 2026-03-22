@@ -1,0 +1,17 @@
+names:
+- '10'
+- '100'
+- '20'
+- '200'
+- '50'
+- '500'
+nc: 6
+roboflow:
+  license: CC BY 4.0
+  project: indian-currency-notes-q41gc-ycb85
+  url: https://universe.roboflow.com/moni-kings-workplace/indian-currency-notes-q41gc-ycb85/dataset/1
+  version: 1
+  workspace: moni-kings-workplace
+test: /content/yolov5/indian-currency/notes-1/test/images
+train: /content/yolov5/indian-currency/notes-1/train/images
+val: /content/yolov5/indian-currency/notes-1/valid/images

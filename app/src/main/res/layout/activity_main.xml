@@ -52,7 +52,7 @@
             app:tint="@color/primary_color" />
     </LinearLayout>
 
-    <!-- Mode Switcher -->
+    <!-- Mode Switcher (Simplified: Mobile vs ESP32) -->
     <LinearLayout
         android:id="@+id/modePill"
         android:layout_width="0dp"
@@ -124,7 +124,8 @@
             android:layout_width="match_parent"
             android:layout_height="40dp"
             android:background="@android:color/transparent"
-            android:hint="Enter ESP32 IP address (e.g. 192.168.4.1)"
+            android:hint="http://192.168.4.1"
+            android:text="http://192.168.4.1"
             android:inputType="textUri"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"

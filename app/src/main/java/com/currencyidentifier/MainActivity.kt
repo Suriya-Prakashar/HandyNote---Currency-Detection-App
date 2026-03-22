@@ -30,6 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -43,6 +44,8 @@ import java.net.URL
 import java.nio.channels.FileChannel
 import java.text.SimpleDateFormat
 import java.util.*
+import android.text.Editable
+import android.text.TextWatcher
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -55,6 +58,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var esp32StreamConnection: HttpURLConnection? = null
     private var lastEsp32PreviewUpdateMs: Long = 0L
     private var lastEsp32Frame: Bitmap? = null
+    private var lastEsp32StreamErrorMs: Long = 0L
+    private var currentEsp32StreamBaseUrl: String? = null
+    private var esp32IpDebounceJob: Job? = null
+    private var esp32PollingJob: Job? = null
 
     private lateinit var captureFab: FloatingActionButton
     private lateinit var scanLine: View
@@ -75,6 +82,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var cameraProvider: ProcessCameraProvider? = null
     private var boundCamera: Camera? = null
     private var tts: TextToSpeech? = null
+    private var lastErrorSpokenAtMs: Long = 0L
     
     private enum class Mode { MOBILE, ESP32 }
     private var mode: Mode = Mode.MOBILE
@@ -106,13 +114,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         modeSelector = findViewById(R.id.modeSelector)
         modeSettingsRow = findViewById(R.id.modeSettingsRow)
         modeInputEditText = findViewById(R.id.modeInput)
-        
-        // Restore manual input capability
+        // ESP32 hotspot uses a fixed IP, so keep the field locked and error-free.
         modeInputEditText.setText(ESP32_DEFAULT_BASE_URL)
         modeInputEditText.isEnabled = true
         modeInputEditText.isFocusable = true
         modeInputEditText.isFocusableInTouchMode = true
         modeInputEditText.isClickable = true
+
+        // Editing the ESP32 IP should not trigger network calls automatically.
+        // We only connect when the user taps "Capture" to keep ESP32 stable.
+        modeInputEditText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
 
         captureFab = findViewById(R.id.captureFab)
         scanLine = findViewById(R.id.scanLine)
@@ -186,6 +201,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         captureFab.alpha = if (processing) 0.5f else 1.0f
         if (processing) {
             setResultUi(value = "--", name = "Processing...", confidence = null)
+            speak("Processing. Please wait.")
         }
     }
 
@@ -194,17 +210,29 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         when (mode) {
             Mode.MOBILE -> {
                 modeSettingsRow.visibility = View.GONE
+                modeInputEditText.isEnabled = false
+                modeInputEditText.isFocusable = false
+                modeInputEditText.isFocusableInTouchMode = false
+                modeInputEditText.isClickable = false
                 esp32Preview.visibility = View.GONE
-                stopEsp32Stream()
                 previewView.visibility = View.VISIBLE
                 scanOverlay.visibility = View.VISIBLE
                 scanLine.visibility = View.VISIBLE
                 btnFlash.visibility = View.VISIBLE
                 btnSwitchCamera.visibility = View.VISIBLE
+                speak("Mobile camera mode. Point the camera at the currency and press capture.")
                 startCamera()
             }
             Mode.ESP32 -> {
                 modeSettingsRow.visibility = View.VISIBLE
+                // Allow the user to set the ESP32 IP/URL (default is 192.168.4.1).
+                if (modeInputEditText.text?.toString()?.trim().isNullOrEmpty()) {
+                    modeInputEditText.setText(ESP32_DEFAULT_BASE_URL)
+                }
+                modeInputEditText.isEnabled = true
+                modeInputEditText.isFocusable = true
+                modeInputEditText.isFocusableInTouchMode = true
+                modeInputEditText.isClickable = true
                 esp32Preview.visibility = View.VISIBLE
                 previewView.visibility = View.GONE
                 scanOverlay.visibility = View.VISIBLE
@@ -212,7 +240,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 btnFlash.visibility = View.GONE
                 btnSwitchCamera.visibility = View.GONE
                 stopCamera()
-                startEsp32Stream()
+                speak("ESP32 camera mode. Enter the ESP32 IP address and press capture.")
+                fetchEsp32PreviewOnce()
             }
         }
     }
@@ -239,6 +268,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun captureFromEsp32() {
+        val baseUrl = getEsp32BaseUrl()
+        val captureUrls = listOf(
+            "${baseUrl}$ESP32_CAPTURE_URL_SUFFIX",
+            "${baseUrl}/"
+        )
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            var bitmap: Bitmap? = null
+            for (url in captureUrls) {
+            try {
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.instanceFollowRedirects = true
+                connection.doInput = true
+                bitmap = connection.inputStream.use { input ->
+                    BitmapFactory.decodeStream(input)
+                }
+                
+                if (bitmap != null) break
+            } catch (e: Exception) {
+                Log.e(TAG, "ESP32 capture URL failed: $url", e)
+                // Try next URL (e.g. /capture then /)
+            }
+            }
+
+            withContext(Dispatchers.Main) {
+                if (bitmap != null) {
+                    lastEsp32Frame = bitmap
+                    esp32Preview.setImageBitmap(bitmap)
+                    processImage(bitmap)
+                } else {
+                    val usedFallback = tryFallbackToLastEsp32FrameOrToast()
+                    if (!usedFallback) setProcessingState(false)
+                }
+            }
+        }
+    }
+
+    // Preview fetch for ESP32 mode: fetches one JPEG from `/capture` without running inference.
+    private fun fetchEsp32PreviewOnce() {
         val url = "${getEsp32BaseUrl()}$ESP32_CAPTURE_URL_SUFFIX"
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -246,23 +316,38 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val connection = URL(url).openConnection() as HttpURLConnection
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
-                val bitmap = BitmapFactory.decodeStream(connection.inputStream)
-                
+                connection.instanceFollowRedirects = true
+                connection.doInput = true
+
+                val bitmap = connection.inputStream.use { input ->
+                    BitmapFactory.decodeStream(input)
+                }
+
                 withContext(Dispatchers.Main) {
                     if (bitmap != null) {
                         lastEsp32Frame = bitmap
                         esp32Preview.setImageBitmap(bitmap)
-                        processImage(bitmap)
-                    } else {
-                        val usedFallback = tryFallbackToLastEsp32FrameOrToast()
-                        if (!usedFallback) setProcessingState(false)
+                    } else if (lastEsp32Frame == null) {
+                        setResultUi(value = "--", name = "Could not reach ESP32", confidence = null)
+                        val now = System.currentTimeMillis()
+                        if (now - lastErrorSpokenAtMs > 1500) {
+                            lastErrorSpokenAtMs = now
+                            speak("Could not reach ESP32. Please check the hotspot and IP address.")
+                        }
+                        Toast.makeText(this@MainActivity, "Could not reach ESP32", Toast.LENGTH_SHORT).show()
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 withContext(Dispatchers.Main) {
-                    Log.e(TAG, "ESP32 Error", e)
-                    val usedFallback = tryFallbackToLastEsp32FrameOrToast()
-                    if (!usedFallback) setProcessingState(false)
+                    if (lastEsp32Frame == null) {
+                        setResultUi(value = "--", name = "Could not reach ESP32", confidence = null)
+                        val now = System.currentTimeMillis()
+                        if (now - lastErrorSpokenAtMs > 1500) {
+                            lastErrorSpokenAtMs = now
+                            speak("Could not reach ESP32. Please check the hotspot and IP address.")
+                        }
+                        Toast.makeText(this@MainActivity, "Could not reach ESP32", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
@@ -277,18 +362,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
 
         setResultUi(value = "--", name = "Could not reach ESP32", confidence = null)
+        val now = System.currentTimeMillis()
+        if (now - lastErrorSpokenAtMs > 1500) {
+            lastErrorSpokenAtMs = now
+            speak("Could not reach ESP32. Please check the hotspot and IP address.")
+        }
         Toast.makeText(this, "Could not reach ESP32", Toast.LENGTH_SHORT).show()
         return false
     }
 
     private fun startEsp32Stream() {
-        if (esp32StreamJob?.isActive == true) return
+        val baseUrl = getEsp32BaseUrl()
+        if (esp32StreamJob?.isActive == true && currentEsp32StreamBaseUrl == baseUrl) return
 
         stopEsp32Stream()
+        currentEsp32StreamBaseUrl = baseUrl
         lastEsp32PreviewUpdateMs = 0L
 
         esp32StreamJob = lifecycleScope.launch(Dispatchers.IO) {
-            val baseUrl = getEsp32BaseUrl()
             val streamUrl = "$baseUrl$ESP32_STREAM_URL_SUFFIX"
 
             var connection: HttpURLConnection? = null
@@ -305,49 +396,68 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 var prevByte = -1
                 var capturingJpeg = false
                 val jpegBuffer = ByteArrayOutputStream()
+                val maxJpegBytes = 2_500_000 // safety guard to avoid unbounded buffer growth
 
-                while (isActive) {
-                    val bytesRead = inputStream.read(buffer)
+                inputStream.use { stream ->
+                    while (isActive) {
+                        val bytesRead = stream.read(buffer)
                     if (bytesRead == -1) break
 
-                    for (i in 0 until bytesRead) {
-                        val b = buffer[i].toInt() and 0xFF
+                        for (i in 0 until bytesRead) {
+                            val b = buffer[i].toInt() and 0xFF
 
-                        if (!capturingJpeg) {
-                            if (prevByte == 0xFF && b == 0xD8) {
-                                capturingJpeg = true
-                                jpegBuffer.reset()
-                                jpegBuffer.write(0xFF)
-                                jpegBuffer.write(0xD8)
+                            if (!capturingJpeg) {
+                                if (prevByte == 0xFF && b == 0xD8) {
+                                    capturingJpeg = true
+                                    jpegBuffer.reset()
+                                    jpegBuffer.write(0xFF)
+                                    jpegBuffer.write(0xD8)
+                                }
                             }
-                        } else {
-                            jpegBuffer.write(b)
+                            else {
+                                jpegBuffer.write(b)
 
-                            // End marker: 0xFF 0xD9
-                            if (prevByte == 0xFF && b == 0xD9) {
-                                capturingJpeg = false
-                                val frameBytes = jpegBuffer.toByteArray()
-                                jpegBuffer.reset()
+                                // Safety: if markers are missing, avoid infinite growth.
+                                if (jpegBuffer.size() > maxJpegBytes) {
+                                    capturingJpeg = false
+                                    jpegBuffer.reset()
+                                }
 
-                                val now = System.currentTimeMillis()
-                                if (now - lastEsp32PreviewUpdateMs > 150) {
-                                    lastEsp32PreviewUpdateMs = now
-                                    val bmp = BitmapFactory.decodeByteArray(frameBytes, 0, frameBytes.size)
-                                    if (bmp != null) {
-                                        lastEsp32Frame = bmp
-                                        withContext(Dispatchers.Main) {
-                                            esp32Preview.setImageBitmap(bmp)
+                                // End marker: 0xFF 0xD9
+                                if (prevByte == 0xFF && b == 0xD9) {
+                                    capturingJpeg = false
+                                    val frameBytes = jpegBuffer.toByteArray()
+                                    jpegBuffer.reset()
+
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastEsp32PreviewUpdateMs > 150) {
+                                        lastEsp32PreviewUpdateMs = now
+                                        val bmp = BitmapFactory.decodeByteArray(frameBytes, 0, frameBytes.size)
+                                        if (bmp != null) {
+                                            lastEsp32Frame = bmp
+                                        // Stream is working; stop polling fallback.
+                                        stopEsp32PollingFallback()
+                                            withContext(Dispatchers.Main) {
+                                                esp32Preview.setImageBitmap(bmp)
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        prevByte = b
+                            prevByte = b
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "ESP32 stream error", e)
+                val now = System.currentTimeMillis()
+                if (now - lastEsp32StreamErrorMs > 2000) {
+                    lastEsp32StreamErrorMs = now
+                    withContext(Dispatchers.Main) {
+                        setResultUi(value = "--", name = "ESP32 stream not reachable", confidence = null)
+                    }
+                }
             } finally {
                 try {
                     connection?.disconnect()
@@ -366,6 +476,52 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         } catch (_: Exception) {
         }
         esp32StreamConnection = null
+    }
+
+    private fun stopEsp32PollingFallback() {
+        esp32PollingJob?.cancel()
+        esp32PollingJob = null
+    }
+
+    private fun startEsp32PollingFallbackIfNeeded() {
+        // If we already have streamed frames, don't poll.
+        if (lastEsp32Frame != null) return
+        if (esp32PollingJob?.isActive == true) return
+
+        // Wait a bit for /stream to deliver frames first.
+        esp32PollingJob = lifecycleScope.launch(Dispatchers.IO) {
+            delay(6000)
+            if (mode != Mode.ESP32) return@launch
+            if (lastEsp32Frame != null) return@launch
+
+            // Poll /capture periodically for preview frames.
+            while (isActive && mode == Mode.ESP32 && lastEsp32Frame == null) {
+                val bmp = fetchEsp32CaptureBitmap()
+                if (bmp != null) {
+                    lastEsp32Frame = bmp
+                    withContext(Dispatchers.Main) {
+                        esp32Preview.setImageBitmap(bmp)
+                    }
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    private fun fetchEsp32CaptureBitmap(): Bitmap? {
+        val url = "${getEsp32BaseUrl()}$ESP32_CAPTURE_URL_SUFFIX"
+        return try {
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.instanceFollowRedirects = true
+            connection.doInput = true
+            connection.inputStream.use { input ->
+                BitmapFactory.decodeStream(input)
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun processImage(bitmap: Bitmap) {
@@ -597,7 +753,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val v = resultValue.text?.toString().orEmpty()
         val n = resultCurrencyName.text?.toString().orEmpty()
         if (v == "--") return n
-        return "$v $n"
+
+        val confText = resultConfidence.text?.toString().orEmpty()
+        val confPercent = confText
+            .substringAfter("Confidence:", confText)
+            .replace("%", "")
+            .trim()
+            .toIntOrNull()
+
+        val rupees = v.replace("₹", "rupees").trim()
+        return if (confPercent != null) {
+            "$n. Amount is $rupees. Confidence is $confPercent percent."
+        } else {
+            "$n. Amount is $rupees."
+        }
     }
 
     private fun toggleTorch() {

@@ -46,3 +46,16 @@ app/src/main/assets/best/
 
 # Conversion helper repo clone (optional; keep repo clean)
 tools/yolov5/
+
+# Local Gradle downloads / heap dumps (do not commit)
+gradle-8.2-bin.zip
+gradle-tmp/
+*.hprof
+
+# Large local export (not part of app source)
+HandyNote_source_code.txt
+
+# Accidental copies of Gradle distribution JARs (wrapper only needs gradle-wrapper.jar)
+gradle/wrapper/gradle-cli-*.jar
+gradle/wrapper/gradle-launcher-*.jar
+gradle/wrapper/gradle-wrapper-shared.jar
